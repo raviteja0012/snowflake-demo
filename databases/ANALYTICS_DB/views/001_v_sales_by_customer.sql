@@ -22,8 +22,8 @@ WITH customer_metrics AS (
 )
 SELECT 
     customer_name,
-    customer_segment as segment,
-    customer_region as region,
+    customer_segment,
+    customer_region,
     order_count,
     product_variety,
     total_revenue,
