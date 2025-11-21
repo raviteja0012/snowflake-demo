@@ -7,8 +7,8 @@ CREATE OR REPLACE VIEW V_SALES_BY_CUSTOMER AS
 WITH customer_metrics AS (
     SELECT 
         c.customer_name,
-        c.segment,
-        c.region,
+        c.customer_segment,
+        c.customer_region,
         COUNT(DISTINCT t.transaction_id) as order_count,
         COUNT(DISTINCT t.product_id) as product_variety,
         SUM(t.total_amount) as total_revenue,
@@ -18,12 +18,12 @@ WITH customer_metrics AS (
         COUNT(DISTINCT DATE_TRUNC('month', t.transaction_date)) as active_months
     FROM RAW_DB.PUBLIC.CUSTOMERS c
     JOIN RAW_DB.PUBLIC.TRANSACTIONS t ON c.customer_id = t.customer_id
-    GROUP BY c.customer_name, c.segment, c.region
+    GROUP BY c.customer_name, c.customer_segment, c.customer_region
 )
 SELECT 
     customer_name,
-    segment,
-    region,
+    customer_segment as segment,
+    customer_region as region,
     order_count,
     product_variety,
     total_revenue,
