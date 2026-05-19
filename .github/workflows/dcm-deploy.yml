@@ -174,7 +174,7 @@ jobs:
           } | tee -a "$LOG_FILE"
           snow sql -x -q "
           USE SECONDARY ROLES NONE;
-          EXECUTE DCM PROJECT ${DCM_PROJECT_NAME} DEPLOY AS '${ALIAS}'
+          EXECUTE DCM PROJECT ${DCM_PROJECT_NAME} DEPLOY AS \"${ALIAS}\"
               USING CONFIGURATION ${DCM_CONFIG}
           FROM '${DCM_FROM_PATH}';
           " 2>&1 | tee -a "$LOG_FILE"

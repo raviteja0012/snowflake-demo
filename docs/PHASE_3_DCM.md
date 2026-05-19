@@ -113,7 +113,7 @@ EXECUTE DCM PROJECT <name>
     FROM '<source_files_path>';
 
 EXECUTE DCM PROJECT <name>
-    DEPLOY [AS '<deployment_alias>']
+    DEPLOY [AS "<deployment_alias>"]
     [USING [CONFIGURATION <config_name>] [(<expr>, [<expr>, ...])]]
     FROM '<source_files_path>';
 ```
@@ -300,6 +300,7 @@ Workspaces also support direct `EXECUTE DCM PROJECT ... FROM 'snow://workspace/.
 |---|---|---|
 | `Object 'AMI_DCM_PROJECT' does not exist` | Forgot bootstrap/04 | Run script 04 as ACCOUNTADMIN first |
 | `Project cannot manage its parent database 'AMI_DEMO_DB'` | DEFINE DATABASE in a project that lives inside that database | Remove the DEFINE DATABASE statement. Database creation is bootstrap, not DCM |
+| `syntax error ... unexpected ''alias_name''` on DEPLOY | Single quotes around `DEPLOY AS '<alias>'` | Alias is an IDENTIFIER, not a string literal. Use `DEPLOY AS "<alias>"` (double quotes) or no quotes |
 | `Manifest file not found at path` | FROM points to wrong folder | Path must be the directory containing `manifest.yml`, ends with `/` |
 | `Target 'dev' references templating_config 'DEV' which is not defined` | manifest.yml mismatch | `templating_config` value must match a key under `templating.configurations` |
 | `Statement 'INSERT INTO ...' is not supported in DCM project definition files` | DML in definition file | Move DML to Phase 2 EIF. Definition files only allow DEFINE, GRANT, ATTACH |
