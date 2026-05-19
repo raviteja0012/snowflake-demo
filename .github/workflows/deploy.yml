@@ -32,8 +32,6 @@ jobs:
       # Source: https://github.com/snowflakedb/snowflake-cli-action
       - name: Install Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
-        with:
-          cli-version: latest
 
       - name: Write private key to file
         env:
