@@ -37,7 +37,7 @@ CREATE OR REPLACE SECRET AMI_DEMO_DB.GIT_OPS.GITHUB_PAT_SECRET
 -- ===================================================================
 CREATE OR REPLACE API INTEGRATION GITHUB_API_INTEGRATION
     API_PROVIDER = GIT_HTTPS_API
-    API_ALLOWED_PREFIXES = ('https://github.com/raviteja0012/snowflake-demo')
+    API_ALLOWED_PREFIXES = ('https://github.com/raviteja0012/')
     ALLOWED_AUTHENTICATION_SECRETS = (AMI_DEMO_DB.GIT_OPS.GITHUB_PAT_SECRET)
     ENABLED = TRUE
     COMMENT = 'Read access to the snowflake-demo repo for AMI native git integration demo.';
