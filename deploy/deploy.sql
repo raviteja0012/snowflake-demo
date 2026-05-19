@@ -1,24 +1,41 @@
 --!jinja
 -- =====================================================================
--- deploy.sql - top-level orchestrator
+-- deploy.sql - top-level orchestrator (v2 adds GIT_COMMIT_HASH capture)
 --
--- This replaces prod ami_deploy.sql:
---   prod: !source ./SomeDDL.sql       → our: EXECUTE IMMEDIATE FROM '...'
---   prod: &DB_NAME                    → our: {{ env_db }}
---   prod: !SET OUTPUT_FILE=...log     → our: FRAMEWORK.DEPLOY_LOG row
---   prod: CALL FRAMEWORK.UPDATE_PROCESS_LOGS(...) → SP_LOG_DEPLOY call
+-- Replaces prod ami_deploy.sql:
+--   prod: !source ./SomeDDL.sql       → EXECUTE IMMEDIATE FROM '...'
+--   prod: &DB_NAME                    → {{ env_db }}
+--   prod: !SET OUTPUT_FILE=...log     → FRAMEWORK.DEPLOY_LOG row
+--   prod: CALL FRAMEWORK.UPDATE_PROCESS_LOGS(...) → CALL SP_LOG_DEPLOY(...)
 --
--- DEPLOY_LOG replaces the SnowSQL client-side log file. Server-side,
--- queryable forever, shared across users. To view recent deploys:
+-- DEPLOY_LOG is the server-side equivalent of prod's SnowSQL log file.
+-- Each row captures: who, when, from which branch, which commit hash,
+-- success/error, status description.
+--
+-- View recent deploys:
 --   SELECT * FROM FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 10;
 --
--- Order matters: framework objects (DEPLOY_LOG table, SP_LOG_DEPLOY proc)
--- must exist BEFORE we try to log to them. So 10_framework runs first.
+-- Order: framework objects (DEPLOY_LOG, SP_LOG_DEPLOY) must exist BEFORE
+-- we write to them. So 10_framework runs first.
 -- =====================================================================
 
 USE ROLE      {{ rl_name }};
 USE WAREHOUSE {{ wh_name }};
 USE DATABASE  {{ env_db }};
+
+-- ---------------------------------------------------------------------
+-- Capture which commit we're deploying. SHOW GIT BRANCHES emits the
+-- current commit_hash for each branch in the local clone.
+-- We pull the hash for 'main' into a session variable so the deploy log
+-- row can record the exact source-of-truth commit.
+-- ---------------------------------------------------------------------
+SHOW GIT BRANCHES IN {{ env_db }}.GIT_OPS.AMI_GIT_REPO;
+
+SET v_commit_hash = (
+    SELECT "commit_hash"
+      FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+     WHERE "name" = 'main'
+);
 
 -- ---------------------------------------------------------------------
 -- 10 framework FIRST so DEPLOY_LOG, PROCESS_LOG, SP_LOG_DEPLOY exist
@@ -42,15 +59,14 @@ EXECUTE IMMEDIATE FROM './40_procedures/40_LogDeploySP_DDL_v1.0.sql'
            ami_support_role => '{{ ami_support_role }}');
 
 -- ---------------------------------------------------------------------
--- Log deploy START to FRAMEWORK.DEPLOY_LOG
--- Captures who, when, from which branch. End row updates this on completion.
+-- Log deploy START to FRAMEWORK.DEPLOY_LOG, including the commit hash
 -- ---------------------------------------------------------------------
 INSERT INTO {{ env_db }}.{{ frmwk_sch }}.DEPLOY_LOG
-    (GIT_BRANCH, DEPLOY_STATUS, STATUS_DESC)
+    (GIT_COMMIT_HASH, GIT_BRANCH, DEPLOY_STATUS, STATUS_DESC)
 VALUES
-    ('main', 'STARTED', 'AMI deploy started via native git integration');
+    ($v_commit_hash, 'main', 'STARTED', 'AMI deploy started via native git integration');
 
--- Capture surrogate id of the row we just inserted, into a session variable
+-- Capture surrogate id of the row we just inserted
 SET v_deploy_id = (SELECT MAX(DEPLOY_ID)
                      FROM {{ env_db }}.{{ frmwk_sch }}.DEPLOY_LOG);
 
@@ -116,12 +132,12 @@ UPDATE {{ env_db }}.{{ frmwk_sch }}.DEPLOY_LOG
 CALL {{ env_db }}.{{ frmwk_sch }}.SP_LOG_DEPLOY('AMI_DEPLOY', 'GIT_INTEGRATION_DEPLOY');
 
 -- ---------------------------------------------------------------------
--- Final status row. This is what the caller (Snowsight worksheet or
--- GitHub Action) sees in the result set.
+-- Final status row. Caller (Snowsight or GitHub Action) sees this.
 -- ---------------------------------------------------------------------
 SELECT
     'AMI demo deploy complete' AS status,
     $v_deploy_id               AS deploy_id,
+    $v_commit_hash             AS commit_hash,
     '{{ env_db }}'             AS deployed_to,
     CURRENT_USER()             AS deployed_by,
     CURRENT_ROLE()             AS deployed_role,
