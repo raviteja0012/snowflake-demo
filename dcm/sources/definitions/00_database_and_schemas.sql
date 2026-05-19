@@ -1,9 +1,6 @@
 -- 00_database_and_schemas.sql
--- DCM-managed database and schemas for AMI demo.
+-- DCM-managed schemas for AMI demo.
 -- Order does not matter inside DCM. Snowflake sorts internally.
-
-DEFINE DATABASE {{ env_db }}
-    COMMENT = 'AMI demo, DCM-managed';
 
 DEFINE SCHEMA {{ env_db }}.{{ corp_sch }}
     COMMENT = 'Corporate reference (CIM-aligned), DCM-managed';
