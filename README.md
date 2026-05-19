@@ -24,7 +24,7 @@ Schema and role names mirror `ami_env_dev.cfg` so scripts can be lifted into pro
 | 1 | Manual EIF in Snowsight worksheet | done |
 | 1.5 | Snowsight Workspaces edit + push + redeploy | done |
 | 2 | GitHub Actions auto-deploy on push to main, JWT keypair | done |
-| 3 | DCM Projects (declarative, plan-then-deploy) | in progress |
+| 3 | DCM Projects (declarative, plan-then-deploy) | done, round-trip verified |
 
 ## Layout
 
@@ -35,20 +35,21 @@ snowflake-demo/
 ├── bootstrap/                       one-time setup, ACCOUNTADMIN
 │   ├── 01_account_setup.sql         DB, WH, schemas, roles
 │   ├── 02_git_integration.sql       PAT secret, API integration, GIT REPOSITORY
-│   └── 03_keypair_auth.sql          Phase 2 keypair + GRANT WRITE
+│   ├── 03_keypair_auth.sql          Phase 2 keypair + GRANT WRITE
+│   └── 04_dcm_project_bootstrap.sql Phase 3 DCM PROJECT object
 ├── deploy/                          imperative deploy (Phase 1/2)
 │   ├── deploy.sql                   orchestrator, Jinja templated
 │   ├── View_Deploy_History.sql      audit queries
 │   ├── 01_grants/ … 70_sample_data/
 ├── dcm/                             declarative deploy (Phase 3)
 │   ├── manifest.yml
-│   └── definitions/
+│   └── sources/definitions/
 ├── .github/workflows/
-│   ├── deploy.yml                   auto-deploy, push to main
-│   ├── deploy-verbose.yml           manual, full audit log
+│   ├── deploy.yml                   Phase 2 auto-deploy
+│   ├── deploy-verbose.yml           Phase 2 manual full audit
 │   └── dcm-deploy.yml               Phase 3 PLAN + DEPLOY
 ├── Snow_Config/                     reference only
-└── docs/                            SETUP.md, EXPECTED_LOGS.md
+└── docs/                            SETUP.md, EXPECTED_LOGS.md, PHASE_3_DCM.md
 ```
 
 ## Run the demo

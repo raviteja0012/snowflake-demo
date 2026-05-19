@@ -19,7 +19,7 @@ Demo account: `KEGHDAI-GVA52989` (Azure East US 2, Enterprise trial, ends June 1
 | 2 | GitHub Actions auto-deploy on push to main | CI runner | JWT keypair |
 | 3 | DCM Projects PLAN/DEPLOY | CI runner or human | JWT keypair |
 
-Status: 1, 1.5, 2 done and verified. 3 scaffolded, first PLAN pending.
+Status: 1, 1.5, 2, 3 all done and verified end-to-end.
 
 ## 3. Architecture (one picture in words)
 
@@ -139,6 +139,8 @@ ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;
 | DEPLOY_ID=201 | GitHub Actions (Phase 2) | 91e8b9eb | SUCCESS in 1m 44s |
 | DEPLOY_ID=301 | GitHub Actions (Phase 2 + log artifact) | eb624896 | SUCCESS in 1m 42s |
 | DEPLOY_ID=401 | GitHub Actions VERBOSE | 28c4df78 | SUCCESS, full QUERY_HISTORY captured |
+| DEPLOYMENT$1 | GitHub Actions DCM PLAN+DEPLOY (Phase 3) | gha_run_26117041776_b5f1b64 | SUCCESS in 1m 8s, claimed 4 schemas + 5 tables + 30 grants |
+| DEPLOYMENT$2 | GitHub Actions DCM round-trip (Phase 3) | gha_run_26117387780 | SUCCESS in 1m 16s, ALTER DIM_METER add METER_FIRMWARE_VERSION, 8 rows preserved |
 
 ### What QUERY_HISTORY exposes
 EIF child statements DO appear as individual QUERY_HISTORY rows (verified DEPLOY_ID=401):
@@ -186,7 +188,7 @@ SNOWFLAKE_DATABASE: AMI_DEMO_DB
 - Every `snow sql -x -q "..."` call uses `-x` (--temporary-connection) so it picks up env vars
 - `set -o pipefail` on every step that tees to a log file
 
-## 8. Bugs hit and fixed (9 total)
+## 8. Bugs hit and fixed (11 total)
 
 | # | Symptom | Cause | Fix |
 |---|---|---|---|
@@ -199,6 +201,8 @@ SNOWFLAKE_DATABASE: AMI_DEMO_DB
 | 7 | GitHub Action: snowflake-cli-action repo path 404 | Wrong path `Snowflake-Labs/v1.5` | Corrected to `snowflakedb/snowflake-cli-action@v2.0` |
 | 8 | `cli-version: latest` breaks uv parser | uv doesn't parse "latest" as a version | Removed `with: cli-version` block (action defaults to latest) |
 | 9 | `snow sql` errors "Connection default is not configured" | snow CLI needs explicit connection | Added `-x` (--temporary-connection) flag to every call |
+| 10 | DCM PLAN: `Project cannot manage its parent database 'AMI_DEMO_DB'` | A DCM project cannot DEFINE its own parent database | Removed `DEFINE DATABASE` from `00_database_and_schemas.sql`. Database stays under Phase 1 bootstrap |
+| 11 | DCM DEPLOY: `syntax error ... unexpected ''alias_name''` | Deployment alias is an IDENTIFIER, not a string literal. `DEPLOY AS 'x'` is wrong | Use `DEPLOY AS "x"` (double quotes) in workflow + docs + bootstrap/04 |
 
 ## 9. File structure
 
@@ -226,11 +230,12 @@ snowflake-demo/
 │   └── 70_sample_data/70_SampleData_DML_v1.0.sql
 ├── dcm/                             declarative deploy (Phase 3)
 │   ├── manifest.yml
-│   └── definitions/
-│       ├── 00_database_and_schemas.sql
-│       ├── 10_framework_tables.sql
-│       ├── 20_dim_meter.sql
-│       └── 30_fact_meter_reads.sql
+│   └── sources/
+│       └── definitions/
+│           ├── 00_database_and_schemas.sql
+│           ├── 10_framework_tables.sql
+│           ├── 20_dim_meter.sql
+│           └── 30_fact_meter_reads.sql
 ├── .github/workflows/
 │   ├── deploy.yml                   Phase 2 auto-deploy
 │   ├── deploy-verbose.yml           Phase 2 manual full audit
@@ -252,7 +257,7 @@ A: No. They're for different directions:
 Removing the GIT REPOSITORY object would remove the need for PAT, but then we lose: commit_hash audit, Snowsight-only deploys (no CI needed), server-side caching, the Snowflake-blessed pattern.
 
 ### Q: Why keep both Phase 2 (EIF) and Phase 3 (DCM)?
-A: DCM only supports a subset of object types (tables, views, grants, warehouses, roles, schemas, databases). Stages, file formats, secrets, integrations, tasks, procedures still need imperative deploys. Hybrid pattern works fine, both coexist.
+A: DCM only supports a subset of object types (tables, views, dynamic tables, schemas, warehouses, roles, grants, tasks, SQL functions, tags, auth policies). Procedures with body, JS/Python/Java UDFs, pipes, streams, external tables, sequences, file formats, secrets, integrations still need imperative deploys. DCM also cannot manage its own parent database or parent schema, so the database stays under Phase 1 bootstrap forever. Hybrid pattern is the realistic answer, both coexist.
 
 ### Q: How is this different from schemachange / dbt / Terraform?
 - **schemachange** is migration-based (versioned scripts). Good for forward-only changes. DCM is declarative diff-based.
@@ -269,12 +274,15 @@ A: DCM only supports a subset of object types (tables, views, grants, warehouses
 
 ## 11. Pending and TODOs
 
-- [ ] First DCM PLAN + DEPLOY run on `AMI_DCM_PROJECT` to verify it works end-to-end
-- [ ] Update SETUP.md with Phase 3 walkthrough (after first verified DCM deploy)
+- [x] First DCM PLAN + DEPLOY run on `AMI_DCM_PROJECT` (DEPLOYMENT$1, 1m 8s)
+- [x] Round-trip column-add demo via DCM (DEPLOYMENT$2, 1m 16s)
+- [x] Update SETUP.md with Phase 3 walkthrough
 - [ ] Architecture slide deck for NG team (Bavya, Suresh, Eugene, Ajay)
 - [ ] PAT rotation reminder for Aug 2, 2026
 - [ ] Decide: keep email seed + sample data in Phase 2 EIF, or move to DCM migrations
 - [ ] Multi-env: add test/uat/prod targets to manifest.yml when ready
+- [ ] Add `dcm-purge.yml` workflow for tear-down (uses EXECUTE DCM PROJECT PURGE)
+- [ ] Consider moving FRMWK_RETRY_TASK to DEFINE TASK (currently Phase 2)
 
 ## 12. Glossary
 
