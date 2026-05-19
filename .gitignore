@@ -3,10 +3,14 @@
 *.token
 secrets.local.sql
 
-# Local snowsql / snow CLI artifacts
+# Local snow CLI artifacts
 .snowflake/
 config.toml
 *.log
+
+# DCM ANALYZE output (per Snowflake docs)
+out/
+**/out/
 
 # OS
 .DS_Store

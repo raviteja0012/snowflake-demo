@@ -179,29 +179,55 @@ This is the SnowSQL .log file equivalent. Every child statement EIF triggered is
 
 ```sql
 EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT PLAN
-    USING CONFIGURATION (target => 'dev');
+    USING CONFIGURATION DEV
+FROM '@AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/dcm/';
 ```
 
-Expected first-run output (no existing objects from DCM perspective):
-```
-operation  object_type  object_name                              status
-CREATE     SCHEMA       AMI_DEMO_DB.AMICORP                      planned
-CREATE     SCHEMA       AMI_DEMO_DB.AMICOMM                      planned
-CREATE     SCHEMA       AMI_DEMO_DB.FRAMEWORK                    planned
-CREATE     SCHEMA       AMI_DEMO_DB.AMISTAGE                     planned
-CREATE     TABLE        AMI_DEMO_DB.AMISTAGE.DIM_METER           planned
-CREATE     TABLE        AMI_DEMO_DB.AMISTAGE.FACT_METER_READS    planned
-CREATE     TABLE        AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG  planned
-CREATE     TABLE        AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG         planned
-CREATE     TABLE        AMI_DEMO_DB.FRAMEWORK.PROCESS_LOG        planned
-GRANT      ...                                                   planned
+Result is a SINGLE row with one column containing a JSON object (not a tabular changeset). Shape:
+
+```json
+{
+  "version": 2,
+  "metadata": {
+    "timestamp": "2026-05-19T17:55:00Z",
+    "query_id": "01abc...",
+    "project_name": "AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT",
+    "user": "RAVITEJA0012",
+    "role_name": "DEV_AMI_ADMIN_ROLE",
+    "command": "PLAN"
+  },
+  "changeset": [
+    { "type": "CREATE", "object_id": { "domain": "DATABASE", "name": "AMI_DEMO_DB", "fqn": "AMI_DEMO_DB" }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA",   "name": "AMICORP",  "fqn": "AMI_DEMO_DB.AMICORP" }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA",   "name": "FRAMEWORK","fqn": "AMI_DEMO_DB.FRAMEWORK" }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "TABLE",    "name": "DIM_METER","fqn": "AMI_DEMO_DB.AMISTAGE.DIM_METER" }, "changes": [...] },
+    ...
+  ]
+}
 ```
 
-On second run (no changes): all rows show `unchanged`. Snowflake compares declared vs current and only re-applies the diff.
+Important: because Phase 2 already created these tables and DEV_AMI_ADMIN_ROLE owns both the existing tables AND the DCM project, the FIRST PLAN will likely report each existing table as a `CREATE` operation. That's DCM claiming management of an object that already exists. If the current shape matches the DEFINE exactly, DEPLOY is a no-op at the DDL level but writes a "this project now manages X" record. If the shape differs (e.g. you added a column), DEPLOY runs ALTER.
 
-After making a column change in a `dcm/definitions/*.sql` file, push, and re-PLAN:
+To make PLAN output readable in Snowsight, use the flow operator:
+
+```sql
+EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT PLAN
+    USING CONFIGURATION DEV
+FROM '@AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/dcm/'
+->> SELECT
+       changeset.value:type::string                        AS operation,
+       changeset.value:object_id:domain::string            AS object_type,
+       changeset.value:object_id:fqn::string               AS object_fqn
+     FROM TABLE(FLATTEN(input => $1:changeset)) AS changeset
+     ORDER BY 1, 2, 3;
 ```
-ALTER      TABLE        AMI_DEMO_DB.AMISTAGE.DIM_METER           planned (column added)
+
+On a clean account, second PLAN (no changes since last DEPLOY) returns `"changeset": []` -> 0 rows from that flatten query.
+
+After making a column change in a `dcm/sources/definitions/*.sql` file, push, FETCH, re-PLAN:
+```
+operation  object_type  object_fqn
+ALTER      TABLE        AMI_DEMO_DB.AMISTAGE.DIM_METER
 ```
 
 DEPLOY then applies the planned changes.

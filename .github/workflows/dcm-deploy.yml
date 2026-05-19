@@ -1,9 +1,14 @@
 name: DCM Project Plan and Deploy
 
 # Phase 3: declarative deploys via DCM Projects.
-# Triggers on push to main when dcm/ changes.
-# Runs PLAN (always) then DEPLOY (only on push to main, not on PR).
-# workflow_dispatch lets you trigger manually for a plan preview.
+# Verified against:
+#   https://docs.snowflake.com/en/sql-reference/sql/execute-dcm-project
+#   https://docs.snowflake.com/en/user-guide/dcm-projects/dcm-projects-use
+#
+# Flow:
+#   PR to main with dcm/* changes  -> PLAN only (preview)
+#   push to main with dcm/* changes -> PLAN then DEPLOY
+#   workflow_dispatch              -> manual, plan_only toggle
 
 on:
   push:
@@ -17,10 +22,10 @@ on:
       - 'dcm/**'
   workflow_dispatch:
     inputs:
-      target:
-        description: 'DCM target name from manifest.yml'
+      configuration:
+        description: 'DCM configuration name from manifest.yml (DEV, TEST, PROD)'
         required: false
-        default: 'dev'
+        default: 'DEV'
       plan_only:
         description: 'Only PLAN, skip DEPLOY'
         required: false
@@ -48,7 +53,9 @@ jobs:
       SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
       SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
       SNOWFLAKE_DATABASE: AMI_DEMO_DB
-      DCM_TARGET: ${{ inputs.target || 'dev' }}
+      DCM_CONFIG: ${{ inputs.configuration || 'DEV' }}
+      DCM_PROJECT_NAME: AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT
+      DCM_FROM_PATH: '@AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/dcm/'
 
     steps:
       - name: Checkout repo
@@ -66,13 +73,15 @@ jobs:
             echo "==========================================================="
             echo "  AMI DCM Project Deploy Log"
             echo "==========================================================="
-            echo "  Run ID   : ${{ github.run_id }}"
-            echo "  Commit   : ${{ github.sha }}"
-            echo "  Branch   : ${{ github.ref_name }}"
-            echo "  Event    : ${{ github.event_name }}"
-            echo "  Actor    : ${{ github.actor }}"
-            echo "  Target   : $DCM_TARGET"
-            echo "  Started  : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "  Run ID        : ${{ github.run_id }}"
+            echo "  Commit        : ${{ github.sha }}"
+            echo "  Branch        : ${{ github.ref_name }}"
+            echo "  Event         : ${{ github.event_name }}"
+            echo "  Actor         : ${{ github.actor }}"
+            echo "  Configuration : $DCM_CONFIG"
+            echo "  Project       : $DCM_PROJECT_NAME"
+            echo "  From          : $DCM_FROM_PATH"
+            echo "  Started       : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "==========================================================="
             echo ""
           } | tee "$LOG_FILE"
@@ -88,56 +97,77 @@ jobs:
           echo "$SNOWFLAKE_PRIVATE_KEY" > ~/.snowflake/rsa_key.p8
           chmod 600 ~/.snowflake/rsa_key.p8
 
-      - name: Sync project files from local checkout to Snowflake DCM project
-        # DCM project was created FROM @AMI_GIT_REPO/branches/main/dcm/
-        # so first FETCH the git repo to get latest files into Snowflake's clone.
+      - name: Verify connection
         run: |
           set -o pipefail
           {
             echo ""
-            echo "----- $(date -u '+%H:%M:%S UTC') -- Fetch git repo so DCM project picks up latest -----"
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Verify connection -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Fetch git repo so DCM sees latest commit
+        # DCM reads files from the GIT REPOSITORY clone inside Snowflake.
+        # FETCH first so the clone has whatever we just pushed.
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- ALTER GIT REPOSITORY FETCH -----"
           } | tee -a "$LOG_FILE"
           snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;" 2>&1 | tee -a "$LOG_FILE"
           snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;" 2>&1 | tee -a "$LOG_FILE"
 
-      - name: DCM PLAN (preview)
+      - name: DCM PLAN
         run: |
           set -o pipefail
           {
             echo ""
-            echo "----- $(date -u '+%H:%M:%S UTC') -- DCM PLAN -----"
+            echo "----- $(date -u '+%H:%M:%S UTC') -- DCM PLAN (configuration $DCM_CONFIG) -----"
           } | tee -a "$LOG_FILE"
-          # PLAN previews what would change. Output shows CREATE/ALTER/DROP per object.
           snow sql -x -q "
-          EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT PLAN
-              USING CONFIGURATION (target => '${DCM_TARGET}');
+          USE SECONDARY ROLES NONE;
+          EXECUTE DCM PROJECT ${DCM_PROJECT_NAME} PLAN
+              USING CONFIGURATION ${DCM_CONFIG}
+          FROM '${DCM_FROM_PATH}';
           " 2>&1 | tee -a "$LOG_FILE"
 
       - name: DCM DEPLOY
-        # Skip DEPLOY on PRs (plan-only review). Skip when plan_only input is true.
-        # Only run DEPLOY on push to main or explicit workflow_dispatch with plan_only=false.
+        # Skip on PRs (plan-only review). Skip when plan_only=true.
         if: github.event_name != 'pull_request' && inputs.plan_only != true
         run: |
           set -o pipefail
+          ALIAS="gha_run_${{ github.run_id }}_$(echo ${{ github.sha }} | cut -c1-7)"
           {
             echo ""
-            echo "----- $(date -u '+%H:%M:%S UTC') -- DCM DEPLOY -----"
+            echo "----- $(date -u '+%H:%M:%S UTC') -- DCM DEPLOY (configuration $DCM_CONFIG, alias $ALIAS) -----"
           } | tee -a "$LOG_FILE"
           snow sql -x -q "
-          EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT DEPLOY
-              USING CONFIGURATION (target => '${DCM_TARGET}');
+          USE SECONDARY ROLES NONE;
+          EXECUTE DCM PROJECT ${DCM_PROJECT_NAME} DEPLOY AS '${ALIAS}'
+              USING CONFIGURATION ${DCM_CONFIG}
+          FROM '${DCM_FROM_PATH}';
           " 2>&1 | tee -a "$LOG_FILE"
 
-      - name: Verify deployed objects
+      - name: Show deployment history
         if: github.event_name != 'pull_request' && inputs.plan_only != true
         run: |
           set -o pipefail
           {
             echo ""
-            echo "----- $(date -u '+%H:%M:%S UTC') -- Verify -----"
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Deployment history -----"
           } | tee -a "$LOG_FILE"
-          snow sql -x -q "SHOW TABLES IN DATABASE AMI_DEMO_DB;" 2>&1 | tee -a "$LOG_FILE"
-          snow sql -x -q "SELECT COUNT(*) AS dim_meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SHOW DEPLOYMENTS IN DCM PROJECT ${DCM_PROJECT_NAME};" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Verify managed objects
+        if: github.event_name != 'pull_request' && inputs.plan_only != true
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- SHOW ENTITIES IN DCM PROJECT -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "SHOW ENTITIES IN DCM PROJECT ${DCM_PROJECT_NAME};" 2>&1 | tee -a "$LOG_FILE"
 
       - name: Finalize log
         if: always()

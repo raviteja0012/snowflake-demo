@@ -203,17 +203,25 @@ See `docs/PHASE_3_DCM.md`.
 
 Short version:
 1. Run `bootstrap/04_dcm_project_bootstrap.sql` as ACCOUNTADMIN. Creates DCM project object.
-2. Edit files under `dcm/definitions/`. Push to main.
+2. Edit files under `dcm/sources/definitions/`. Push to main.
 3. PR to main → `dcm-deploy.yml` runs PLAN (preview only).
 4. Push to main → PLAN then DEPLOY.
 
 Manual run from Snowsight:
 ```sql
 USE ROLE DEV_AMI_ADMIN_ROLE;
+USE SECONDARY ROLES NONE;
+
+ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;
+
 EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT PLAN
-    USING CONFIGURATION (target => 'dev');
-EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT DEPLOY
-    USING CONFIGURATION (target => 'dev');
+    USING CONFIGURATION DEV
+FROM '@AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/dcm/';
+
+-- After reviewing the PLAN JSON, deploy:
+EXECUTE DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT DEPLOY AS 'first_deploy'
+    USING CONFIGURATION DEV
+FROM '@AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/dcm/';
 ```
 
 ---
