@@ -22,14 +22,58 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # Default shell with pipefail so a failed snow sql still fails the step
+    # even when piped to tee. Without this, `snow sql ... | tee` would mask errors.
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # Common Snowflake env vars used by every snow sql call below
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+      SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+      SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+      SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+      SNOWFLAKE_DATABASE: AMI_DEMO_DB
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      # Official Snowflake CLI installer action.
-      # Source: https://github.com/snowflakedb/snowflake-cli-action
+      - name: Initialize deploy log file
+        # Replaces SnowSQL's !SET OUTPUT_FILE=ami_deploy_*.log
+        # Every subsequent snow sql call tees stdout+stderr into this file.
+        # Uploaded as workflow artifact at end of job.
+        run: |
+          LOG_DIR="$GITHUB_WORKSPACE/logs"
+          mkdir -p "$LOG_DIR"
+          LOG_FILE="$LOG_DIR/ami_deploy_$(date -u +%Y%m%d_%H%M%S)_run${{ github.run_id }}.log"
+          echo "LOG_FILE=$LOG_FILE" >> "$GITHUB_ENV"
+          {
+            echo "==========================================================="
+            echo "  AMI Deploy Log - GitHub Actions native git integration"
+            echo "==========================================================="
+            echo "  Run ID         : ${{ github.run_id }}"
+            echo "  Run number     : ${{ github.run_number }}"
+            echo "  Commit SHA     : ${{ github.sha }}"
+            echo "  Commit message : ${{ github.event.head_commit.message }}"
+            echo "  Branch         : ${{ github.ref_name }}"
+            echo "  Triggered by   : ${{ github.actor }}"
+            echo "  Event          : ${{ github.event_name }}"
+            echo "  Started        : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "  Account        : ${{ secrets.SNOWFLAKE_ACCOUNT }}"
+            echo "  Role           : DEV_AMI_ADMIN_ROLE"
+            echo "  Warehouse      : NONPROD_AMI_ADMIN_WH"
+            echo "  Database       : AMI_DEMO_DB"
+            echo "==========================================================="
+            echo ""
+          } | tee "$LOG_FILE"
+          echo "Log file: $LOG_FILE"
+
       - name: Install Snowflake CLI
         uses: snowflakedb/snowflake-cli-action@v2.0
 
@@ -42,40 +86,31 @@ jobs:
           chmod 600 ~/.snowflake/rsa_key.p8
 
       - name: Verify Snowflake connection
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
-          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
-          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
-          SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -x -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_WAREHOUSE() AS wh, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;"
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Verify Snowflake connection -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_WAREHOUSE() AS wh, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;" 2>&1 | tee -a "$LOG_FILE"
 
       - name: Fetch latest from git repository
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
-          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
-          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
-          SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;"
-          snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;"
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Fetch from remote git repo -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;" 2>&1 | tee -a "$LOG_FILE"
 
       - name: Deploy via EXECUTE IMMEDIATE FROM
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
-          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
-          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
-          SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- EXECUTE IMMEDIATE FROM deploy.sql -----"
+          } | tee -a "$LOG_FILE"
           snow sql -x -q "
           EXECUTE IMMEDIATE FROM @AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/deploy/deploy.sql
               USING (env_db => 'AMI_DEMO_DB',
@@ -94,19 +129,43 @@ jobs:
                      xref_sch => 'XREF',
                      ciap_sch => 'AMICIAP',
                      int_sch => 'AMIINT');
-          "
+          " 2>&1 | tee -a "$LOG_FILE"
 
       - name: Smoke-test deployed objects
-        env:
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
-          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
-          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
-          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
-          SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -x -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;"
-          snow sql -x -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;"
-          snow sql -x -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;"
-          snow sql -x -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;"
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Smoke-test deployed objects -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Finalize log file
+        if: always()
+        # Runs even if a prior step failed, so we always get a log file
+        run: |
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  AMI Deploy Log - Finished"
+            echo "==========================================================="
+            echo "  Ended    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "  Job conclusion will be in the GitHub Actions UI"
+            echo "==========================================================="
+          } | tee -a "$LOG_FILE"
+          echo ""
+          echo "===== Final log file contents preview (first 80 lines) ====="
+          head -80 "$LOG_FILE"
+
+      - name: Upload deploy log as workflow artifact
+        if: always()
+        # if: always() runs even on failure - we always want the log
+        uses: actions/upload-artifact@v4
+        with:
+          name: ami-deploy-log-run${{ github.run_id }}
+          path: ${{ env.LOG_FILE }}
+          retention-days: 30
+          if-no-files-found: warn
