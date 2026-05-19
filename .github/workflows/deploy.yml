@@ -1,0 +1,114 @@
+name: Deploy to Snowflake
+
+# Triggers on push to main when deploy/, bootstrap/, or the workflow itself
+# changes. Doc-only commits don't trigger redeploys.
+# workflow_dispatch lets you manually trigger from the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/**'
+      - 'bootstrap/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# Least-privilege permissions for the workflow
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Fetch and deploy to AMI_DEMO_DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Official Snowflake CLI installer action.
+      # Source: https://github.com/snowflakedb/snowflake-cli-action
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+        with:
+          cli-version: latest
+
+      - name: Write private key to file
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.snowflake
+          echo "$SNOWFLAKE_PRIVATE_KEY" > ~/.snowflake/rsa_key.p8
+          chmod 600 ~/.snowflake/rsa_key.p8
+
+      - name: Verify Snowflake connection
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+          SNOWFLAKE_DATABASE: AMI_DEMO_DB
+        run: |
+          snow sql -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_WAREHOUSE() AS wh, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;"
+
+      - name: Fetch latest from git repository
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+          SNOWFLAKE_DATABASE: AMI_DEMO_DB
+        run: |
+          snow sql -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;"
+          snow sql -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;"
+
+      - name: Deploy via EXECUTE IMMEDIATE FROM
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+          SNOWFLAKE_DATABASE: AMI_DEMO_DB
+        run: |
+          snow sql -q "
+          EXECUTE IMMEDIATE FROM @AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/deploy/deploy.sql
+              USING (env_db => 'AMI_DEMO_DB',
+                     wh_name => 'NONPROD_AMI_ADMIN_WH',
+                     rl_name => 'DEV_AMI_ADMIN_ROLE',
+                     ami_mat_role => 'DEV_AMI_LOAD_ROLE',
+                     ami_sel_role => 'DEV_AMI_SELECT_ROLE',
+                     ami_mls_role => 'DEV_AMI_MLS_ROLE',
+                     ami_pbi_role => 'DEV_AMI_PBI_ROLE',
+                     ami_support_role => 'NONPROD_AMI_SUPPORT_ROLE',
+                     corp_sch => 'AMICORP',
+                     comm_sch => 'AMICOMM',
+                     frmwk_sch => 'FRAMEWORK',
+                     rpts_sch => 'AMIRPTS',
+                     stage_sch => 'AMISTAGE',
+                     xref_sch => 'XREF',
+                     ciap_sch => 'AMICIAP',
+                     int_sch => 'AMIINT');
+          "
+
+      - name: Smoke-test deployed objects
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+          SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+          SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+          SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+          SNOWFLAKE_DATABASE: AMI_DEMO_DB
+        run: |
+          snow sql -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;"
+          snow sql -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;"
+          snow sql -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;"
+          snow sql -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;"
