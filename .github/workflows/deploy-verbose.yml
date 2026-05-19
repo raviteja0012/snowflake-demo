@@ -1,0 +1,208 @@
+name: Deploy to Snowflake (Verbose Log)
+
+# Manual trigger only. Use this when you want a rich SnowSQL-style log
+# capturing both the deploy script source AND every statement Snowflake
+# actually executed.
+#
+# Daily auto-deploys use deploy.yml (faster, leaner log).
+# This workflow is for debugging, audit, demos, or PR review.
+on:
+  workflow_dispatch:
+    inputs:
+      log_query_history_minutes:
+        description: 'How many recent minutes of QUERY_HISTORY to capture'
+        required: false
+        default: '5'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-verbose:
+    name: Verbose deploy to AMI_DEMO_DB with full audit log
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
+      SNOWFLAKE_PRIVATE_KEY_FILE: /home/runner/.snowflake/rsa_key.p8
+      SNOWFLAKE_ROLE: DEV_AMI_ADMIN_ROLE
+      SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
+      SNOWFLAKE_DATABASE: AMI_DEMO_DB
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize verbose log file
+        run: |
+          LOG_DIR="$GITHUB_WORKSPACE/logs"
+          mkdir -p "$LOG_DIR"
+          LOG_FILE="$LOG_DIR/ami_deploy_verbose_$(date -u +%Y%m%d_%H%M%S)_run${{ github.run_id }}.log"
+          echo "LOG_FILE=$LOG_FILE" >> "$GITHUB_ENV"
+          {
+            echo "==========================================================="
+            echo "  AMI Deploy Log (VERBOSE) - Full source + QUERY_HISTORY"
+            echo "==========================================================="
+            echo "  Run ID         : ${{ github.run_id }}"
+            echo "  Commit SHA     : ${{ github.sha }}"
+            echo "  Branch         : ${{ github.ref_name }}"
+            echo "  Triggered by   : ${{ github.actor }}"
+            echo "  Event          : ${{ github.event_name }}"
+            echo "  Started        : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "  History window : last ${{ inputs.log_query_history_minutes }} minutes"
+            echo "==========================================================="
+            echo ""
+          } | tee "$LOG_FILE"
+
+      - name: Dump deploy script source to log
+        # SnowSQL log captured the source because SnowSQL read each !source file.
+        # We replicate that by cat-ing every deploy/*.sql file from the checked-out repo.
+        run: |
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  SECTION 1: Deploy script SOURCE CODE (from git checkout)"
+            echo "==========================================================="
+          } | tee -a "$LOG_FILE"
+
+          for f in $(find deploy bootstrap -name "*.sql" | sort); do
+            {
+              echo ""
+              echo "---------- FILE: $f ----------"
+              cat "$f"
+              echo "---------- END FILE: $f ----------"
+            } | tee -a "$LOG_FILE"
+          done
+
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v2.0
+
+      - name: Write private key to file
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.snowflake
+          echo "$SNOWFLAKE_PRIVATE_KEY" > ~/.snowflake/rsa_key.p8
+          chmod 600 ~/.snowflake/rsa_key.p8
+
+      - name: Capture pre-deploy timestamp for QUERY_HISTORY filter
+        run: |
+          PRE_DEPLOY_TS=$(date -u '+%Y-%m-%d %H:%M:%S')
+          echo "PRE_DEPLOY_TS=$PRE_DEPLOY_TS" >> "$GITHUB_ENV"
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  SECTION 2: DEPLOY EXECUTION"
+            echo "==========================================================="
+            echo "  Pre-deploy timestamp (UTC): $PRE_DEPLOY_TS"
+          } | tee -a "$LOG_FILE"
+
+      - name: Fetch and deploy
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Fetch from remote git repo -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;" 2>&1 | tee -a "$LOG_FILE"
+
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- EXECUTE IMMEDIATE FROM deploy.sql -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "
+          EXECUTE IMMEDIATE FROM @AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/deploy/deploy.sql
+              USING (env_db => 'AMI_DEMO_DB',
+                     wh_name => 'NONPROD_AMI_ADMIN_WH',
+                     rl_name => 'DEV_AMI_ADMIN_ROLE',
+                     ami_mat_role => 'DEV_AMI_LOAD_ROLE',
+                     ami_sel_role => 'DEV_AMI_SELECT_ROLE',
+                     ami_mls_role => 'DEV_AMI_MLS_ROLE',
+                     ami_pbi_role => 'DEV_AMI_PBI_ROLE',
+                     ami_support_role => 'NONPROD_AMI_SUPPORT_ROLE',
+                     corp_sch => 'AMICORP',
+                     comm_sch => 'AMICOMM',
+                     frmwk_sch => 'FRAMEWORK',
+                     rpts_sch => 'AMIRPTS',
+                     stage_sch => 'AMISTAGE',
+                     xref_sch => 'XREF',
+                     ciap_sch => 'AMICIAP',
+                     int_sch => 'AMIINT');
+          " 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Capture QUERY_HISTORY for the deploy session
+        # The real magic: ask Snowflake what statements it executed during EIF
+        # and append the full text + status + timing of each to the log.
+        run: |
+          set -o pipefail
+          MINS="${{ inputs.log_query_history_minutes }}"
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  SECTION 3: QUERY_HISTORY (per-statement audit)"
+            echo "==========================================================="
+            echo "  Window: last ${MINS} minutes, user RAVITEJA0012, db AMI_DEMO_DB"
+            echo ""
+          } | tee -a "$LOG_FILE"
+
+          snow sql -x -q "
+          SELECT
+              TO_VARCHAR(START_TIME, 'HH24:MI:SS.FF3 TZH') AS start_time,
+              EXECUTION_STATUS AS status,
+              TOTAL_ELAPSED_TIME/1000 AS elapsed_sec,
+              ERROR_CODE,
+              QUERY_TEXT
+            FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER(
+                USER_NAME            => 'RAVITEJA0012',
+                END_TIME_RANGE_START => DATEADD(MINUTE, -${MINS}, CURRENT_TIMESTAMP()),
+                END_TIME_RANGE_END   => CURRENT_TIMESTAMP(),
+                RESULT_LIMIT         => 500))
+           WHERE DATABASE_NAME = 'AMI_DEMO_DB'
+             AND QUERY_TEXT NOT LIKE '%INFORMATION_SCHEMA.QUERY_HISTORY%'
+           ORDER BY START_TIME;
+          " 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Smoke-test deployed objects
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  SECTION 4: SMOKE TEST"
+            echo "==========================================================="
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;" 2>&1 | tee -a "$LOG_FILE"
+          snow sql -x -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Finalize log file
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "==========================================================="
+            echo "  AMI Deploy Log (VERBOSE) - Finished"
+            echo "==========================================================="
+            echo "  Ended    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "==========================================================="
+          } | tee -a "$LOG_FILE"
+
+      - name: Upload verbose deploy log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ami-deploy-verbose-log-run${{ github.run_id }}
+          path: ${{ env.LOG_FILE }}
+          retention-days: 60
+          if-no-files-found: warn
