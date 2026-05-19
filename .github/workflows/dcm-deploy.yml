@@ -118,6 +118,35 @@ jobs:
           snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;" 2>&1 | tee -a "$LOG_FILE"
           snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;" 2>&1 | tee -a "$LOG_FILE"
 
+      - name: Ensure DCM project object exists (idempotent self-bootstrap)
+        # First time this workflow runs, the DCM project object doesn't exist.
+        # Service user is ACCOUNTADMIN-capable, so do the bootstrap here once.
+        # GRANT + CREATE IF NOT EXISTS are both idempotent. No-op after first run.
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "----- $(date -u '+%H:%M:%S UTC') -- Self-bootstrap DCM project (idempotent) -----"
+          } | tee -a "$LOG_FILE"
+          snow sql -x -q "
+          USE ROLE ACCOUNTADMIN;
+          GRANT CREATE DCM PROJECT ON SCHEMA AMI_DEMO_DB.GIT_OPS TO ROLE DEV_AMI_ADMIN_ROLE;
+
+          USE ROLE      DEV_AMI_ADMIN_ROLE;
+          USE WAREHOUSE NONPROD_AMI_ADMIN_WH;
+          USE SCHEMA    AMI_DEMO_DB.GIT_OPS;
+
+          CREATE DCM PROJECT IF NOT EXISTS AMI_DCM_PROJECT
+              LOG_LEVEL = INFO
+              COMMENT   = 'AMI DCM project. Declarative deploys for Phase 3.';
+
+          USE ROLE ACCOUNTADMIN;
+          GRANT READ ON DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT TO ROLE NONPROD_AMI_SUPPORT_ROLE;
+
+          USE ROLE DEV_AMI_ADMIN_ROLE;
+          SHOW DCM PROJECTS LIKE 'AMI_DCM_PROJECT' IN SCHEMA AMI_DEMO_DB.GIT_OPS;
+          " 2>&1 | tee -a "$LOG_FILE"
+
       - name: DCM PLAN
         run: |
           set -o pipefail
@@ -126,6 +155,7 @@ jobs:
             echo "----- $(date -u '+%H:%M:%S UTC') -- DCM PLAN (configuration $DCM_CONFIG) -----"
           } | tee -a "$LOG_FILE"
           snow sql -x -q "
+          USE ROLE DEV_AMI_ADMIN_ROLE;
           USE SECONDARY ROLES NONE;
           EXECUTE DCM PROJECT ${DCM_PROJECT_NAME} PLAN
               USING CONFIGURATION ${DCM_CONFIG}

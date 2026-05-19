@@ -197,16 +197,19 @@ Result is a SINGLE row with one column containing a JSON object (not a tabular c
     "command": "PLAN"
   },
   "changeset": [
-    { "type": "CREATE", "object_id": { "domain": "DATABASE", "name": "AMI_DEMO_DB", "fqn": "AMI_DEMO_DB" }, "changes": [...] },
-    { "type": "CREATE", "object_id": { "domain": "SCHEMA",   "name": "AMICORP",  "fqn": "AMI_DEMO_DB.AMICORP" }, "changes": [...] },
-    { "type": "CREATE", "object_id": { "domain": "SCHEMA",   "name": "FRAMEWORK","fqn": "AMI_DEMO_DB.FRAMEWORK" }, "changes": [...] },
-    { "type": "CREATE", "object_id": { "domain": "TABLE",    "name": "DIM_METER","fqn": "AMI_DEMO_DB.AMISTAGE.DIM_METER" }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA", "name": "AMICORP",   "fqn": "AMI_DEMO_DB.AMICORP"   }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA", "name": "AMICOMM",   "fqn": "AMI_DEMO_DB.AMICOMM"   }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA", "name": "FRAMEWORK", "fqn": "AMI_DEMO_DB.FRAMEWORK" }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "SCHEMA", "name": "AMISTAGE",  "fqn": "AMI_DEMO_DB.AMISTAGE"  }, "changes": [...] },
+    { "type": "CREATE", "object_id": { "domain": "TABLE",  "name": "DIM_METER", "fqn": "AMI_DEMO_DB.AMISTAGE.DIM_METER" }, "changes": [...] },
     ...
   ]
 }
 ```
 
-Important: because Phase 2 already created these tables and DEV_AMI_ADMIN_ROLE owns both the existing tables AND the DCM project, the FIRST PLAN will likely report each existing table as a `CREATE` operation. That's DCM claiming management of an object that already exists. If the current shape matches the DEFINE exactly, DEPLOY is a no-op at the DDL level but writes a "this project now manages X" record. If the shape differs (e.g. you added a column), DEPLOY runs ALTER.
+Note: `AMI_DEMO_DB` itself is NOT in the changeset. A DCM project cannot manage its own parent database, so DEFINE DATABASE is removed from the definition file. The database stays managed by Phase 1 bootstrap.
+
+Important: because Phase 2 already created these tables and DEV_AMI_ADMIN_ROLE owns both the existing tables AND the DCM project, the FIRST PLAN reports each existing schema and table as a `CREATE` operation. That's DCM claiming management of objects that already exist. If shape matches the DEFINE exactly, DEPLOY is a no-op at the DDL level but writes a "this project now manages X" record. If shape differs (e.g. you added a column), DEPLOY runs ALTER.
 
 To make PLAN output readable in Snowsight, use the flow operator:
 

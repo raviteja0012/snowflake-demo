@@ -30,7 +30,8 @@ In this demo, DCM and Phase 2 split responsibilities:
 
 | Layer | Tool | Why |
 |---|---|---|
-| Database `AMI_DEMO_DB` | DCM | Declarative. Lives at the top. |
+| Database `AMI_DEMO_DB` | Phase 1 bootstrap | DCM cannot manage its own parent database |
+| Schema `GIT_OPS` | Phase 1 bootstrap | Holds the DCM project + git integration. Stays out of DCM. |
 | Schemas (AMICORP, AMICOMM, FRAMEWORK, AMISTAGE) | DCM | Declarative. |
 | Tables (DIM_METER, FACT_METER_READS, framework tables) | DCM | DEFINE TABLE supported |
 | Grants on tables | DCM | GRANT supported, dropped automatically on revoke |
@@ -41,7 +42,9 @@ In this demo, DCM and Phase 2 split responsibilities:
 | Git repo + secret + API integration | Phase 1 bootstrap | One-time |
 | DCM project object itself | Phase 1 bootstrap (script 04) | One-time CREATE DCM PROJECT |
 
-That is realistic. DCM gives you safe table/schema/grant management. Phase 2 handles everything DCM can't.
+That is realistic. DCM gives you safe table/schema/grant management for everything below its parent database. Phase 2 handles everything DCM can't (procedures, DML, tasks) and Phase 1 handles the bootstrap (database, the DCM project's parent schema).
+
+**Hard rule from Snowflake:** A DCM project cannot define its own parent database or parent schema. Our project lives at `AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT`, so DEFINE DATABASE AMI_DEMO_DB and DEFINE SCHEMA AMI_DEMO_DB.GIT_OPS are both forbidden. Everything else under AMI_DEMO_DB is fair game.
 
 ---
 
@@ -179,7 +182,7 @@ Run `bootstrap/04_dcm_project_bootstrap.sql` as ACCOUNTADMIN in Snowsight. It:
 4. FETCHes the git repo (so DCM sees the latest manifest).
 5. Runs the first PLAN.
 
-Expected PLAN output: JSON `changeset` array with CREATE operations for the database, 4 schemas, 5 tables, and grants. All `"type": "CREATE"` because nothing exists in DCM-managed state yet.
+Expected PLAN output: JSON `changeset` array with CREATE operations for **4 schemas, 5 tables, and grants**. All `"type": "CREATE"` because nothing exists in DCM-managed state yet. The database `AMI_DEMO_DB` is NOT in the changeset (created by Phase 1 bootstrap, outside DCM).
 
 If PLAN looks right, uncomment the DEPLOY at the bottom of the script and run it. Or skip directly to Step 3.
 
@@ -202,8 +205,8 @@ SHOW DEPLOYMENTS IN DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT;
 -- Latest row should be your alias, status SUCCESS
 
 SHOW ENTITIES IN DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT;
--- Should list: AMI_DEMO_DB, 4 schemas, 5 tables
--- (matches what DCM is currently managing)
+-- Should list: 4 schemas (AMICORP, AMICOMM, FRAMEWORK, AMISTAGE) + 5 tables
+-- (matches what DCM is currently managing; database AMI_DEMO_DB is NOT here)
 
 SHOW GRANTS IN DCM PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT;
 -- Lists every grant DCM is managing
@@ -296,6 +299,7 @@ Workspaces also support direct `EXECUTE DCM PROJECT ... FROM 'snow://workspace/.
 | Error | Cause | Fix |
 |---|---|---|
 | `Object 'AMI_DCM_PROJECT' does not exist` | Forgot bootstrap/04 | Run script 04 as ACCOUNTADMIN first |
+| `Project cannot manage its parent database 'AMI_DEMO_DB'` | DEFINE DATABASE in a project that lives inside that database | Remove the DEFINE DATABASE statement. Database creation is bootstrap, not DCM |
 | `Manifest file not found at path` | FROM points to wrong folder | Path must be the directory containing `manifest.yml`, ends with `/` |
 | `Target 'dev' references templating_config 'DEV' which is not defined` | manifest.yml mismatch | `templating_config` value must match a key under `templating.configurations` |
 | `Statement 'INSERT INTO ...' is not supported in DCM project definition files` | DML in definition file | Move DML to Phase 2 EIF. Definition files only allow DEFINE, GRANT, ATTACH |
