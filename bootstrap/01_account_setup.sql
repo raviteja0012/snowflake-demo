@@ -2,11 +2,9 @@
 -- Script   : 01_account_setup.sql
 -- Purpose  : One-time bootstrap of database, warehouse, schemas, roles, grants
 -- Run as   : ACCOUNTADMIN
--- Account  : KEGHDAI-GVA52989 (demo)
--- Created  : 2026-05-19
+-- Account  : KEGHDAI-GVA52989
 -- Notes    : Mirrors ami_env_dev.cfg naming so deployment scripts run
---            unchanged against the demo. AMI_DEMO_DB is the only deviation
---            (used instead of DEV_AMI_DEV_DB to make demo isolation obvious).
+--            unchanged against the demo.
 ---------------------------------------------------------------------
 
 USE ROLE ACCOUNTADMIN;
