@@ -24,6 +24,7 @@ CREATE OR ALTER TABLE DIM_METER (
     INSTALL_DTTM           TIMESTAMP_TZ            COMMENT 'When the meter was placed in service',
     LAST_READ_DTTM         TIMESTAMP_TZ            COMMENT 'Most recent successful read',
     REGION_CD              VARCHAR(20)             COMMENT 'Operating region code',
+    SUPPLY_VOLTAGE_NOMINAL NUMBER(8,2)            COMMENT 'Nominal supply voltage at install',    
 
     -- Standard audit pattern, matches prod MDMS_STG_VALIDATED_READS
     ACTIVE_IND             BOOLEAN       NOT NULL  DEFAULT TRUE,
