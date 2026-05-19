@@ -51,7 +51,7 @@ jobs:
           SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
           SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_WAREHOUSE() AS wh, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;"
+          snow sql -x -q "SELECT CURRENT_USER() AS user, CURRENT_ROLE() AS role, CURRENT_WAREHOUSE() AS wh, CURRENT_DATABASE() AS db, CURRENT_TIMESTAMP() AS ts;"
 
       - name: Fetch latest from git repository
         env:
@@ -63,8 +63,8 @@ jobs:
           SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
           SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;"
-          snow sql -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;"
+          snow sql -x -q "ALTER GIT REPOSITORY AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO FETCH;"
+          snow sql -x -q "SHOW GIT BRANCHES IN AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO;"
 
       - name: Deploy via EXECUTE IMMEDIATE FROM
         env:
@@ -76,7 +76,7 @@ jobs:
           SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
           SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -q "
+          snow sql -x -q "
           EXECUTE IMMEDIATE FROM @AMI_DEMO_DB.GIT_OPS.AMI_GIT_REPO/branches/main/deploy/deploy.sql
               USING (env_db => 'AMI_DEMO_DB',
                      wh_name => 'NONPROD_AMI_ADMIN_WH',
@@ -106,7 +106,7 @@ jobs:
           SNOWFLAKE_WAREHOUSE: NONPROD_AMI_ADMIN_WH
           SNOWFLAKE_DATABASE: AMI_DEMO_DB
         run: |
-          snow sql -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;"
-          snow sql -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;"
-          snow sql -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;"
-          snow sql -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;"
+          snow sql -x -q "SELECT COUNT(*) AS meter_rows FROM AMI_DEMO_DB.AMISTAGE.DIM_METER;"
+          snow sql -x -q "SELECT COUNT(*) AS read_rows  FROM AMI_DEMO_DB.AMISTAGE.FACT_METER_READS;"
+          snow sql -x -q "SELECT COUNT(*) AS cfg_rows   FROM AMI_DEMO_DB.FRAMEWORK.EMAIL_BODY_DISPLAY_CONFIG;"
+          snow sql -x -q "SELECT DEPLOY_ID, GIT_COMMIT_HASH, DEPLOY_STATUS, DEPLOY_END_TS FROM AMI_DEMO_DB.FRAMEWORK.DEPLOY_LOG ORDER BY DEPLOY_ID DESC LIMIT 1;"
