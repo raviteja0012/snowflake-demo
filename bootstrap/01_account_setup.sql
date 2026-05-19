@@ -107,3 +107,15 @@ GRANT USAGE ON FUTURE SCHEMAS IN DATABASE AMI_DEMO_DB TO ROLE NONPROD_AMI_SUPPOR
 SHOW WAREHOUSES LIKE 'NONPROD_AMI_ADMIN_WH';
 SHOW DATABASES LIKE 'AMI_DEMO_DB';
 SHOW SCHEMAS IN DATABASE AMI_DEMO_DB;
+
+-- SHOW ROLES doesn't support compound LIKE patterns. Two clean options:
+--   a) SHOW ROLES with no filter (shows everything)
+--   b) Query INFORMATION_SCHEMA / ACCOUNT_USAGE for filtered list
+-- Going with (b) since it gives a tighter result row count.
+
+SHOW ROLES;
+SELECT "name", "owner", "comment"
+  FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+ WHERE "name" LIKE 'DEV_AMI_%' OR "name" LIKE 'NONPROD_AMI_%'
+ ORDER BY "name";
+

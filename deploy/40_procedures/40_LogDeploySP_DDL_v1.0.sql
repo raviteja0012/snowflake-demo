@@ -1,15 +1,19 @@
 --!jinja
----------------------------------------------------------------------
--- Script   : 40_LogDeploySP_DDL_v1.0.sql
--- Purpose  : Demo stored procedure mirroring the prod pattern:
---              - Process id from session + random()
---              - UPDATE_PROCESS_LOGS sink (here: FRAMEWORK.PROCESS_LOG)
---              - STATEMENT_ERROR / EXPRESSION_ERROR / OTHER handlers
---              - Returns 'STATUS|DESC' string
---            Writes one row at start, one row at end of every call.
--- Version  : 1.0
--- Created  : 2026-05-19
----------------------------------------------------------------------
+-- =====================================================================
+-- 40_LogDeploySP_DDL_v1.0.sql
+--
+-- SP_LOG_DEPLOY - Snowflake Scripting proc that mirrors the prod
+-- exception-handling and PROCESS_LOG-writing pattern.
+--
+-- Writes a row at start, a heartbeat row for the component passed in,
+-- and a completion row. On any error, writes one ERROR row instead of
+-- the completion and returns 'ERROR|<sqlcode>:<sqlerrm>' so the caller
+-- can decide what to do.
+--
+-- EXECUTE AS OWNER is intentional: the role calling this proc only
+-- needs USAGE on it, not INSERT on PROCESS_LOG. Keeps the logging
+-- table locked down to one writer (the proc).
+-- =====================================================================
 
 USE SCHEMA {{ frmwk_sch }};
 
@@ -33,7 +37,7 @@ BEGIN
     INSERT INTO PROCESS_LOG (PROCESS_ID, PROCESS_NAME, COMPONENT, PROC_STATUS, STATUS_DESC)
     VALUES (:v_Process_ID, :P_PROCESS_NAME, 'PROCESS_STARTED', :v_Proc_Status, :v_Status_Desc);
 
-    -- Heartbeat row for the component passed in
+    -- Heartbeat row for the component the caller named
     v_Status_Desc := 'Component reached: ' || COALESCE(:P_COMPONENT, 'unspecified');
     INSERT INTO PROCESS_LOG (PROCESS_ID, PROCESS_NAME, COMPONENT, PROC_STATUS, STATUS_DESC)
     VALUES (:v_Process_ID, :P_PROCESS_NAME, :P_COMPONENT, :v_Proc_Status, :v_Status_Desc);

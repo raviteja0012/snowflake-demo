@@ -28,7 +28,15 @@ INFORMATION_SCHEMA    AMI_DEMO_DB     (system)
 
 (PUBLIC is dropped by the bootstrap.)
 
-`SHOW ROLES LIKE 'DEV_AMI_%' OR 'NONPROD_AMI_%'`:
+`SHOW ROLES;` then filter via `RESULT_SCAN`:
+```sql
+SHOW ROLES;
+SELECT "name", "owner", "comment"
+  FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+ WHERE "name" LIKE 'DEV_AMI_%' OR "name" LIKE 'NONPROD_AMI_%'
+ ORDER BY "name";
+```
+Result:
 ```
 name                          owner          granted_to_users
 DEV_AMI_ADMIN_ROLE            USERADMIN      1

@@ -19,9 +19,6 @@ USE DATABASE AMI_DEMO_DB;
 CREATE SCHEMA IF NOT EXISTS AMI_DEMO_DB.GIT_OPS
     COMMENT = 'Holds the secret, API integration handle, and GIT REPOSITORY object';
 
--- Ownership stays with ACCOUNTADMIN here; the deployer role only needs
--- USAGE on the secret/integration and READ on the repo (granted below).
-
 -- ===================================================================
 -- 2. GitHub Personal Access Token, stored as a Snowflake SECRET
 --    The password is encrypted on creation; DESCRIBE never shows it.
