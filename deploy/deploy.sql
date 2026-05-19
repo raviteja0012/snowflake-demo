@@ -7,8 +7,8 @@
 --              USING (env_db => 'AMI_DEMO_DB', ...);
 -- Created  : 2026-05-19
 -- Notes    : - First line MUST be `--!jinja` (templating directive).
---            - Every {{ var }} below must be provided in the USING clause
---              of the caller, otherwise UndefinedError fires.
+--            - Every Jinja placeholder below must be provided in the USING
+--              clause of the caller, otherwise UndefinedError fires.
 --            - Chained EXECUTE IMMEDIATE FROM uses relative paths against
 --              the parent file's location in the repo.
 ---------------------------------------------------------------------
