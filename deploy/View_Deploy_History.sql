@@ -1,25 +1,20 @@
--- =====================================================================
 -- View_Deploy_History.sql
+-- Audit queries for native git integration deploys.
+-- This is the .log file equivalent for SnowSQL deploys.
 --
--- All the queries you need to investigate any deploy. This is the
--- SnowSQL .log file equivalent for native git integration deploys.
---
--- Five queries, run as needed:
---   1. Last 10 deploys (high-level)
+-- Five queries:
+--   1. Last 10 deploys
 --   2. Failed or stuck deploys
 --   3. Deploy frequency by user
 --   4. Recent PROCESS_LOG entries
---   5. FULL PER-STATEMENT AUDIT for a specific deploy_id (the .log equivalent)
--- =====================================================================
+--   5. Per-statement audit for a specific deploy_id (full SnowSQL log equivalent)
 
-USE ROLE DEV_AMI_ADMIN_ROLE;
+USE ROLE      DEV_AMI_ADMIN_ROLE;
 USE WAREHOUSE NONPROD_AMI_ADMIN_WH;
-USE DATABASE AMI_DEMO_DB;
-USE SCHEMA FRAMEWORK;
+USE DATABASE  AMI_DEMO_DB;
+USE SCHEMA    FRAMEWORK;
 
--- ---------------------------------------------------------------------
--- 1. Last 10 deploys (most recent first) - deploy-level audit
--- ---------------------------------------------------------------------
+-- 1. Last 10 deploys
 SELECT DEPLOY_ID,
        GIT_BRANCH,
        LEFT(GIT_COMMIT_HASH, 7) AS COMMIT_SHORT,
@@ -34,9 +29,7 @@ SELECT DEPLOY_ID,
  ORDER BY DEPLOY_ID DESC
  LIMIT 10;
 
--- ---------------------------------------------------------------------
--- 2. Failed or stuck deploys (no end timestamp = interrupted)
--- ---------------------------------------------------------------------
+-- 2. Failed or stuck deploys. NULL DEPLOY_END_TS = interrupted.
 SELECT DEPLOY_ID,
        LEFT(GIT_COMMIT_HASH, 7) AS COMMIT_SHORT,
        DEPLOYED_BY_USER,
@@ -45,13 +38,10 @@ SELECT DEPLOY_ID,
        DEPLOY_START_TS,
        DATEDIFF(MINUTE, DEPLOY_START_TS, CURRENT_TIMESTAMP()) AS MINS_AGO
   FROM DEPLOY_LOG
- WHERE DEPLOY_END_TS IS NULL
-    OR DEPLOY_STATUS = 'ERROR'
+ WHERE DEPLOY_END_TS IS NULL OR DEPLOY_STATUS = 'ERROR'
  ORDER BY DEPLOY_ID DESC;
 
--- ---------------------------------------------------------------------
 -- 3. Deploy frequency by user
--- ---------------------------------------------------------------------
 SELECT DEPLOYED_BY_USER,
        COUNT(*) AS DEPLOY_COUNT,
        SUM(IFF(DEPLOY_STATUS = 'SUCCESS', 1, 0)) AS SUCCESS_COUNT,
@@ -62,9 +52,7 @@ SELECT DEPLOYED_BY_USER,
  GROUP BY DEPLOYED_BY_USER
  ORDER BY DEPLOY_COUNT DESC;
 
--- ---------------------------------------------------------------------
 -- 4. Recent PROCESS_LOG entries (mirrors prod UPDATE_PROCESS_LOGS view)
--- ---------------------------------------------------------------------
 SELECT LOG_ID,
        PROCESS_NAME,
        COMPONENT,
@@ -76,26 +64,21 @@ SELECT LOG_ID,
  ORDER BY LOG_ID DESC
  LIMIT 20;
 
--- =====================================================================
--- 5. FULL PER-STATEMENT AUDIT for a specific deploy
---    This is the SnowSQL .log file equivalent.
---    
---    Replace <DEPLOY_ID> with the deploy you want to investigate.
---    For deploys older than 7 days, change INFORMATION_SCHEMA to 
---    SNOWFLAKE.ACCOUNT_USAGE (requires ACCOUNTADMIN, 45 min latency).
--- =====================================================================
-
-SET v_target_deploy_id = 101;  -- <-- CHANGE THIS to the deploy you're investigating
+-- 5. Per-statement audit for one deploy. This is the .log file equivalent.
+-- Change v_target_deploy_id to the deploy you want to investigate.
+-- For deploys older than 7 days, swap INFORMATION_SCHEMA for SNOWFLAKE.ACCOUNT_USAGE
+-- (ACCOUNTADMIN role, 45 min latency, but 365 day retention).
+SET v_target_deploy_id = 401;
 
 WITH target_deploy AS (
-    SELECT DEPLOY_ID, DEPLOYED_BY_USER, DEPLOY_START_TS, 
+    SELECT DEPLOY_ID, DEPLOYED_BY_USER, DEPLOY_START_TS,
            COALESCE(DEPLOY_END_TS, CURRENT_TIMESTAMP()) AS END_TS
       FROM DEPLOY_LOG
      WHERE DEPLOY_ID = $v_target_deploy_id
 )
 SELECT
     td.DEPLOY_ID,
-    q.START_TIME             AS stmt_start,
+    q.START_TIME              AS stmt_start,
     q.TOTAL_ELAPSED_TIME/1000 AS elapsed_sec,
     q.EXECUTION_STATUS        AS status,
     q.ERROR_CODE,
@@ -112,9 +95,7 @@ SELECT
  WHERE q.START_TIME BETWEEN td.DEPLOY_START_TS AND td.END_TS
  ORDER BY q.START_TIME;
 
--- ---------------------------------------------------------------------
--- 5b. To see the FULL query text of any one statement (no truncation):
--- ---------------------------------------------------------------------
+-- 5b. Full query text (no 200 char truncation) for one query
 -- SELECT QUERY_TEXT, ERROR_MESSAGE
 --   FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY())
 --  WHERE QUERY_ID = '<paste-query-id-from-query-5>';

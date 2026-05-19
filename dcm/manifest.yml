@@ -1,0 +1,49 @@
+# manifest.yml - DCM Projects target map for AMI demo
+#
+# Phase 3 of the AMI Snowflake CI/CD plan.
+# Switches from imperative deploys (EXECUTE IMMEDIATE FROM with explicit SQL)
+# to declarative: we say what should exist, Snowflake figures out the diff.
+#
+# Reference: https://docs.snowflake.com/en/user-guide/dcm-projects/dcm-projects-overview
+#
+# Only one target for now (dev). Add test/uat/prod later, all reading
+# the same definition files with different env_suffix.
+
+manifest_version: 2
+type: DCM_PROJECT
+
+default_target: dev
+
+targets:
+  dev:
+    # Schema-level project object. Created via:
+    #   CREATE PROJECT AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT FROM ...;
+    project: AMI_DEMO_DB.GIT_OPS.AMI_DCM_PROJECT
+    owner: DEV_AMI_ADMIN_ROLE
+    templating:
+      env_db: AMI_DEMO_DB
+      env_suffix: ''
+      wh_name: NONPROD_AMI_ADMIN_WH
+      ami_mat_role: DEV_AMI_LOAD_ROLE
+      ami_sel_role: DEV_AMI_SELECT_ROLE
+      ami_support_role: NONPROD_AMI_SUPPORT_ROLE
+      corp_sch: AMICORP
+      comm_sch: AMICOMM
+      frmwk_sch: FRAMEWORK
+      stage_sch: AMISTAGE
+
+  # Example for later. Uncomment and fill in when ready.
+  # test:
+  #   project: AMI_TEST_DB.GIT_OPS.AMI_DCM_PROJECT
+  #   owner: TEST_AMI_ADMIN_ROLE
+  #   templating:
+  #     env_db: AMI_TEST_DB
+  #     env_suffix: '_TEST'
+  #     wh_name: NONPROD_AMI_ADMIN_WH
+  #     ami_mat_role: TEST_AMI_LOAD_ROLE
+  #     ami_sel_role: TEST_AMI_SELECT_ROLE
+  #     ami_support_role: NONPROD_AMI_SUPPORT_ROLE
+  #     corp_sch: AMICORP
+  #     comm_sch: AMICOMM
+  #     frmwk_sch: FRAMEWORK
+  #     stage_sch: AMISTAGE

@@ -1,8 +1,8 @@
 name: Deploy to Snowflake
 
-# Triggers on push to main when deploy/, bootstrap/, or the workflow itself
-# changes. Doc-only commits don't trigger redeploys.
-# workflow_dispatch lets you manually trigger from the Actions tab.
+# Push to main triggers when deploy/, bootstrap/, or this workflow change.
+# Doc-only commits don't trigger.
+# workflow_dispatch = manual trigger from Actions tab.
 on:
   push:
     branches: [main]
@@ -12,7 +12,6 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-# Least-privilege permissions for the workflow
 permissions:
   contents: read
 
@@ -22,14 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    # Default shell with pipefail so a failed snow sql still fails the step
-    # even when piped to tee. Without this, `snow sql ... | tee` would mask errors.
+    # pipefail so a failed snow sql still fails the step even when piped to tee
     defaults:
       run:
         shell: bash
 
     env:
-      # Common Snowflake env vars used by every snow sql call below
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_AUTHENTICATOR: SNOWFLAKE_JWT
@@ -45,9 +42,8 @@ jobs:
           persist-credentials: false
 
       - name: Initialize deploy log file
-        # Replaces SnowSQL's !SET OUTPUT_FILE=ami_deploy_*.log
-        # Every subsequent snow sql call tees stdout+stderr into this file.
-        # Uploaded as workflow artifact at end of job.
+        # Replaces SnowSQL !SET OUTPUT_FILE=ami_deploy_*.log
+        # Every snow sql call below tees into this file. Uploaded as artifact at end.
         run: |
           LOG_DIR="$GITHUB_WORKSPACE/logs"
           mkdir -p "$LOG_DIR"
@@ -145,7 +141,7 @@ jobs:
 
       - name: Finalize log file
         if: always()
-        # Runs even if a prior step failed, so we always get a log file
+        # Runs even on prior failure so we always get a log file
         run: |
           {
             echo ""
@@ -153,16 +149,14 @@ jobs:
             echo "  AMI Deploy Log - Finished"
             echo "==========================================================="
             echo "  Ended    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            echo "  Job conclusion will be in the GitHub Actions UI"
             echo "==========================================================="
           } | tee -a "$LOG_FILE"
           echo ""
-          echo "===== Final log file contents preview (first 80 lines) ====="
+          echo "===== First 80 lines of log ====="
           head -80 "$LOG_FILE"
 
       - name: Upload deploy log as workflow artifact
         if: always()
-        # if: always() runs even on failure - we always want the log
         uses: actions/upload-artifact@v4
         with:
           name: ami-deploy-log-run${{ github.run_id }}

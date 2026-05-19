@@ -1,13 +1,7 @@
 --!jinja
--- =====================================================================
 -- 60_FrameworkEmailSeed_DML_v1.0.sql
---
--- Seed rows for EMAIL_BODY_DISPLAY_CONFIG.
--- Idempotent: INSERT...WHERE NOT EXISTS so reruns don't duplicate.
---
--- Direct port of the Validated_Reads_Load_Email_Config_DML prod pattern,
--- scaled to two demo processes (METER_READS_LOAD, METER_READS_RETRY).
--- =====================================================================
+-- Seed rows for EMAIL_BODY_DISPLAY_CONFIG. Idempotent via WHERE NOT EXISTS.
+-- Direct port of prod Validated_Reads_Load_Email_Config_DML, two demo processes only.
 
 USE SCHEMA {{ frmwk_sch }};
 

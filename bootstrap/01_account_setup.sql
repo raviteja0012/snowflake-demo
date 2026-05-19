@@ -1,64 +1,45 @@
----------------------------------------------------------------------
--- Script   : 01_account_setup.sql
--- Purpose  : One-time bootstrap of database, warehouse, schemas, roles, grants
--- Run as   : ACCOUNTADMIN
--- Account  : KEGHDAI-GVA52989
--- Notes    : Mirrors ami_env_dev.cfg naming so deployment scripts run
---            unchanged against the demo.
----------------------------------------------------------------------
+-- 01_account_setup.sql
+-- One-time bootstrap: DB, WH, schemas, roles, grants.
+-- Run as ACCOUNTADMIN.
+-- Names mirror ami_env_dev.cfg from prod.
 
 USE ROLE ACCOUNTADMIN;
 
--- ===================================================================
--- 1. Database
--- ===================================================================
+-- Database
 CREATE DATABASE IF NOT EXISTS AMI_DEMO_DB
-    COMMENT = 'AMI native Git integration demo. Mirrors DEV env from ami_env_dev.cfg.';
+    COMMENT = 'AMI native Git integration demo. Mirrors DEV env.';
 
--- ===================================================================
--- 2. Warehouse (mirrors NONPROD_AMI_ADMIN_WH from prod)
--- ===================================================================
+-- Warehouse (mirrors prod NONPROD_AMI_ADMIN_WH)
 CREATE WAREHOUSE IF NOT EXISTS NONPROD_AMI_ADMIN_WH
     WITH WAREHOUSE_SIZE = 'XSMALL'
          AUTO_SUSPEND = 60
          AUTO_RESUME = TRUE
          INITIALLY_SUSPENDED = TRUE
-         COMMENT = 'Demo warehouse. Mirrors NONPROD_AMI_ADMIN_WH from ami_env_dev.cfg.';
+         COMMENT = 'Demo warehouse.';
 
--- ===================================================================
--- 3. Schemas (the 8 common AMI schemas relevant for the demo)
--- ===================================================================
+-- 8 schemas that prod AMI uses
 USE DATABASE AMI_DEMO_DB;
+CREATE SCHEMA IF NOT EXISTS AMICORP    COMMENT = 'CORP_SCH';
+CREATE SCHEMA IF NOT EXISTS AMICOMM    COMMENT = 'COMM_SCH';
+CREATE SCHEMA IF NOT EXISTS FRAMEWORK  COMMENT = 'FRMWK_SCH';
+CREATE SCHEMA IF NOT EXISTS AMIRPTS    COMMENT = 'RPTS_SCH';
+CREATE SCHEMA IF NOT EXISTS AMISTAGE   COMMENT = 'STAGE_SCH';
+CREATE SCHEMA IF NOT EXISTS XREF       COMMENT = 'XREF_SCH';
+CREATE SCHEMA IF NOT EXISTS AMICIAP    COMMENT = 'CIAP_SCH';
+CREATE SCHEMA IF NOT EXISTS AMIINT     COMMENT = 'INT_SCH';
 
-CREATE SCHEMA IF NOT EXISTS AMICORP    COMMENT = 'Conformed master data (CORP_SCH)';
-CREATE SCHEMA IF NOT EXISTS AMICOMM    COMMENT = 'Common reference data (COMM_SCH)';
-CREATE SCHEMA IF NOT EXISTS FRAMEWORK  COMMENT = 'Framework, logging, config (FRMWK_SCH)';
-CREATE SCHEMA IF NOT EXISTS AMIRPTS    COMMENT = 'Reporting (RPTS_SCH)';
-CREATE SCHEMA IF NOT EXISTS AMISTAGE   COMMENT = 'Staging and raw ingest (STAGE_SCH)';
-CREATE SCHEMA IF NOT EXISTS XREF       COMMENT = 'Cross-reference (XREF_SCH)';
-CREATE SCHEMA IF NOT EXISTS AMICIAP    COMMENT = 'CIAP (CIAP_SCH)';
-CREATE SCHEMA IF NOT EXISTS AMIINT     COMMENT = 'Integration (INT_SCH)';
-
--- Drop the default PUBLIC schema; we use named schemas only
+-- We don't use PUBLIC
 DROP SCHEMA IF EXISTS AMI_DEMO_DB.PUBLIC;
 
--- ===================================================================
--- 4. Roles (mirrors ami_env_dev.cfg)
--- ===================================================================
-CREATE ROLE IF NOT EXISTS DEV_AMI_ADMIN_ROLE
-    COMMENT = 'AMI admin role. Owns objects (= RL_NAME in ami_env_dev.cfg).';
-CREATE ROLE IF NOT EXISTS DEV_AMI_LOAD_ROLE
-    COMMENT = 'AMI loader/materializer (= AMI_MAT_ROLE in ami_env_dev.cfg).';
-CREATE ROLE IF NOT EXISTS DEV_AMI_SELECT_ROLE
-    COMMENT = 'AMI read-only (= AMI_SEL_ROLE in ami_env_dev.cfg).';
-CREATE ROLE IF NOT EXISTS DEV_AMI_MLS_ROLE
-    COMMENT = 'AMI masking/MLS consumer (= AMI_MLS_ROLE in ami_env_dev.cfg).';
-CREATE ROLE IF NOT EXISTS DEV_AMI_PBI_ROLE
-    COMMENT = 'AMI Power BI consumer (= AMI_PBI_ROLE in ami_env_dev.cfg).';
-CREATE ROLE IF NOT EXISTS NONPROD_AMI_SUPPORT_ROLE
-    COMMENT = 'AMI ops/support monitoring role (= AMI_SUPPORT_ROLE in ami_env_dev.cfg).';
+-- Roles (mirrors ami_env_dev.cfg)
+CREATE ROLE IF NOT EXISTS DEV_AMI_ADMIN_ROLE       COMMENT = 'Owner role (= RL_NAME)';
+CREATE ROLE IF NOT EXISTS DEV_AMI_LOAD_ROLE        COMMENT = 'Loader (= AMI_MAT_ROLE)';
+CREATE ROLE IF NOT EXISTS DEV_AMI_SELECT_ROLE      COMMENT = 'Read only (= AMI_SEL_ROLE)';
+CREATE ROLE IF NOT EXISTS DEV_AMI_MLS_ROLE         COMMENT = 'MLS (= AMI_MLS_ROLE)';
+CREATE ROLE IF NOT EXISTS DEV_AMI_PBI_ROLE         COMMENT = 'Power BI (= AMI_PBI_ROLE)';
+CREATE ROLE IF NOT EXISTS NONPROD_AMI_SUPPORT_ROLE COMMENT = 'Support / ops monitor';
 
--- Role hierarchy: ADMIN role rolls up to SYSADMIN, functional roles roll up to ADMIN
+-- Role hierarchy
 GRANT ROLE DEV_AMI_ADMIN_ROLE       TO ROLE SYSADMIN;
 GRANT ROLE DEV_AMI_LOAD_ROLE        TO ROLE DEV_AMI_ADMIN_ROLE;
 GRANT ROLE DEV_AMI_SELECT_ROLE      TO ROLE DEV_AMI_ADMIN_ROLE;
@@ -66,26 +47,21 @@ GRANT ROLE DEV_AMI_MLS_ROLE         TO ROLE DEV_AMI_ADMIN_ROLE;
 GRANT ROLE DEV_AMI_PBI_ROLE         TO ROLE DEV_AMI_ADMIN_ROLE;
 GRANT ROLE NONPROD_AMI_SUPPORT_ROLE TO ROLE SYSADMIN;
 
--- Grant roles to current user so USE ROLE works without re-login
+-- Give my user the admin + support roles so USE ROLE works without re-login
 GRANT ROLE DEV_AMI_ADMIN_ROLE       TO USER RAVITEJA0012;
 GRANT ROLE NONPROD_AMI_SUPPORT_ROLE TO USER RAVITEJA0012;
 
--- ===================================================================
--- 5. Object grants
--- ===================================================================
-
--- Warehouse usage
+-- Warehouse grants
 GRANT USAGE   ON WAREHOUSE NONPROD_AMI_ADMIN_WH TO ROLE DEV_AMI_ADMIN_ROLE;
 GRANT USAGE   ON WAREHOUSE NONPROD_AMI_ADMIN_WH TO ROLE DEV_AMI_LOAD_ROLE;
 GRANT USAGE   ON WAREHOUSE NONPROD_AMI_ADMIN_WH TO ROLE DEV_AMI_SELECT_ROLE;
 GRANT MONITOR ON WAREHOUSE NONPROD_AMI_ADMIN_WH TO ROLE NONPROD_AMI_SUPPORT_ROLE;
 
--- Database and schemas are owned by DEV_AMI_ADMIN_ROLE so deploys create objects under it
-GRANT OWNERSHIP ON DATABASE AMI_DEMO_DB           TO ROLE DEV_AMI_ADMIN_ROLE COPY CURRENT GRANTS;
-GRANT OWNERSHIP ON ALL SCHEMAS IN DATABASE AMI_DEMO_DB
-    TO ROLE DEV_AMI_ADMIN_ROLE COPY CURRENT GRANTS;
+-- DB and schemas owned by ADMIN role so deploys create objects under it
+GRANT OWNERSHIP ON DATABASE AMI_DEMO_DB                TO ROLE DEV_AMI_ADMIN_ROLE COPY CURRENT GRANTS;
+GRANT OWNERSHIP ON ALL SCHEMAS IN DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_ADMIN_ROLE COPY CURRENT GRANTS;
 
--- Read access for downstream consumer roles
+-- Downstream consumer roles
 GRANT USAGE ON DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_LOAD_ROLE;
 GRANT USAGE ON DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_SELECT_ROLE;
 GRANT USAGE ON DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_MLS_ROLE;
@@ -99,21 +75,14 @@ GRANT USAGE ON FUTURE SCHEMAS IN DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_LOAD_ROLE;
 GRANT USAGE ON FUTURE SCHEMAS IN DATABASE AMI_DEMO_DB TO ROLE DEV_AMI_SELECT_ROLE;
 GRANT USAGE ON FUTURE SCHEMAS IN DATABASE AMI_DEMO_DB TO ROLE NONPROD_AMI_SUPPORT_ROLE;
 
--- ===================================================================
--- 6. Verification
--- ===================================================================
+-- Verify
 SHOW WAREHOUSES LIKE 'NONPROD_AMI_ADMIN_WH';
 SHOW DATABASES LIKE 'AMI_DEMO_DB';
 SHOW SCHEMAS IN DATABASE AMI_DEMO_DB;
 
--- SHOW ROLES doesn't support compound LIKE patterns. Two clean options:
---   a) SHOW ROLES with no filter (shows everything)
---   b) Query INFORMATION_SCHEMA / ACCOUNT_USAGE for filtered list
--- Going with (b) since it gives a tighter result row count.
-
+-- SHOW ROLES doesn't take compound LIKE, so we filter via RESULT_SCAN
 SHOW ROLES;
 SELECT "name", "owner", "comment"
   FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
  WHERE "name" LIKE 'DEV_AMI_%' OR "name" LIKE 'NONPROD_AMI_%'
  ORDER BY "name";
-

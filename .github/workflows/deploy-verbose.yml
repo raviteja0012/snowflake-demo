@@ -1,16 +1,13 @@
 name: Deploy to Snowflake (Verbose Log)
 
-# Manual trigger only. Use this when you want a rich SnowSQL-style log
-# capturing both the deploy script source AND every statement Snowflake
-# actually executed.
-#
-# Daily auto-deploys use deploy.yml (faster, leaner log).
-# This workflow is for debugging, audit, demos, or PR review.
+# Manual trigger only. For debugging, audit, demos, PR review.
+# Daily deploys use deploy.yml (faster, leaner log).
+# This one captures deploy script source AND every statement Snowflake ran.
 on:
   workflow_dispatch:
     inputs:
       log_query_history_minutes:
-        description: 'How many recent minutes of QUERY_HISTORY to capture'
+        description: 'How many minutes of QUERY_HISTORY to capture'
         required: false
         default: '5'
 
@@ -64,8 +61,8 @@ jobs:
           } | tee "$LOG_FILE"
 
       - name: Dump deploy script source to log
-        # SnowSQL log captured the source because SnowSQL read each !source file.
-        # We replicate that by cat-ing every deploy/*.sql file from the checked-out repo.
+        # SnowSQL .log files captured the source because SnowSQL read each !source file.
+        # We replicate by cat-ing every deploy/*.sql file from the checked-out repo.
         run: |
           {
             echo ""
@@ -141,8 +138,8 @@ jobs:
           " 2>&1 | tee -a "$LOG_FILE"
 
       - name: Capture QUERY_HISTORY for the deploy session
-        # The real magic: ask Snowflake what statements it executed during EIF
-        # and append the full text + status + timing of each to the log.
+        # The real magic: ask Snowflake what statements it ran during EIF
+        # and append full text + status + timing of each.
         run: |
           set -o pipefail
           MINS="${{ inputs.log_query_history_minutes }}"
@@ -198,7 +195,7 @@ jobs:
             echo "==========================================================="
           } | tee -a "$LOG_FILE"
 
-      - name: Upload verbose deploy log as artifact
+      - name: Upload verbose deploy log
         if: always()
         uses: actions/upload-artifact@v4
         with:
