@@ -23,8 +23,7 @@ CREATE OR ALTER TABLE DIM_METER (
     METER_STATUS_CD        VARCHAR(20)   DEFAULT 'ACTIVE'  COMMENT 'ACTIVE, RETIRED, SUSPENDED',
     INSTALL_DTTM           TIMESTAMP_TZ            COMMENT 'When the meter was placed in service',
     LAST_READ_DTTM         TIMESTAMP_TZ            COMMENT 'Most recent successful read',
-    REGION_CD              VARCHAR(20)             COMMENT 'Operating region code',
-    SUPPLY_VOLTAGE_NOMINAL NUMBER(8,2)            COMMENT 'Nominal supply voltage at install',    
+    REGION_CD              VARCHAR(20)             COMMENT 'Operating region code', 
 
     -- Standard audit pattern, matches prod MDMS_STG_VALIDATED_READS
     ACTIVE_IND             BOOLEAN       NOT NULL  DEFAULT TRUE,
@@ -32,6 +31,8 @@ CREATE OR ALTER TABLE DIM_METER (
     CREATE_DTTM            TIMESTAMP_TZ  NOT NULL  DEFAULT CURRENT_TIMESTAMP(),
     UPDATE_BY_ID           VARCHAR(200)  NOT NULL  DEFAULT CURRENT_ROLE(),
     UPDATE_DTTM            TIMESTAMP_TZ  NOT NULL  DEFAULT CURRENT_TIMESTAMP(),
+
+    SUPPLY_VOLTAGE_NOMINAL NUMBER(8,2)            COMMENT 'Nominal supply voltage at install',       
 
     CONSTRAINT PK_DIM_METER PRIMARY KEY (METER_KEY)
 )
